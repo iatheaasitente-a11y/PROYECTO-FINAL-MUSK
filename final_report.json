@@ -44,7 +44,11 @@
         "Alice",
         "Bob"
     ],
+    "high_spending_count": 2,
     "monthly_sales": {
+        "2023-07": 3039.44
+    },
+    "monthly_cumulative_sales": {
         "2023-07": 3039.44
     },
     "sales_detail": [

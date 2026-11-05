@@ -19,7 +19,6 @@ from src.sales_collection import SalesCollection
 from src.client_collection import ClientCollection
 from src.functional_utils import (
     filter_sales_by_category,
-    filter_sales_by_month,
     filter_sales_by_client,
     get_amounts,
 )
@@ -28,6 +27,9 @@ from src.functional_utils import (
 ROOT_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = ROOT_DIR / "data"
 REPORT_FILE = ROOT_DIR / "final_report.json"
+
+# Columnas del DataFrame de ventas (evita errores si no hay ventas)
+SALES_COLUMNS = ["sale_id", "client_id", "product", "category", "amount", "date"]
 
 
 # ------------------------------------------------------------------
@@ -55,6 +57,11 @@ def sum_amounts(sales):
     return reduce(lambda a, b: a + b, get_amounts(sales), 0)
 
 
+def sales_to_dataframe(sales):
+    """Convierte la lista de ventas en un DataFrame de pandas."""
+    return pd.DataFrame([s.to_dict() for s in sales], columns=SALES_COLUMNS)
+
+
 # ------------------------------------------------------------------
 # CÁLCULOS 1 AL 5
 # ------------------------------------------------------------------
@@ -70,7 +77,7 @@ def calc_total_sales(sales):
 
 
 def total_ventas_client(sales, client_id):
-    """Cálculo 3: total gastado por un cliente."""
+    """Cálculo 3: total gastado por un cliente (filter + reduce)."""
     client_sales = filter_sales_by_client(sales, client_id)
     return sum_amounts(client_sales)
 
@@ -84,7 +91,7 @@ def promedio_ventas_client(sales, client_id):
     """Cálculo 5: gasto medio por venta de un cliente (2 decimales)."""
     total = total_ventas_client(sales, client_id)
     count = num_ventas_client(sales, client_id)
-    if count == 0:
+    if count == 0:  # condicional: evita dividir entre cero
         return 0
     return round(total / count, 2)
 
@@ -92,7 +99,7 @@ def promedio_ventas_client(sales, client_id):
 def calc_client_stats(clients, sales):
     """Agrupa los cálculos 3, 4 y 5 en un diccionario por cliente."""
     stats = []
-    for client in clients:
+    for client in clients:  # bucle
         stats.append({
             "client_id": client.client_id,
             "name": client.name,
@@ -109,7 +116,7 @@ def calc_client_stats(clients, sales):
 # ------------------------------------------------------------------
 
 def calc_top_client_by_country(clients, sales):
-    """Cálculo 6: cliente que más gasta en cada país."""
+    """Cálculo 6: cliente que más gasta en cada país (POO + bucle)."""
     client_country = ClientCollection(clients)
     result = {}
     for country in sorted(set(map(lambda c: c.country, clients))):
@@ -120,16 +127,14 @@ def calc_top_client_by_country(clients, sales):
 
 
 def calc_sales_by_category(sales):
-    """Cálculo 7: total vendido por categoría."""
-    categories = sorted(set(map(lambda s: s.category, sales)))
-    return {
-        cat: round(sum_amounts(filter_sales_by_category(sales, cat)), 2)
-        for cat in categories
-    }
+    """Cálculo 7 (pandas): total vendido por categoría con groupby."""
+    df = sales_to_dataframe(sales)
+    totals = df.groupby("category")["amount"].sum().round(2)
+    return {cat: float(total) for cat, total in totals.items()}
 
 
 def calc_top_client_by_category_count(clients, sales, category="Electronics"):
-    """Cálculo 8: cliente con más compras en una categoría."""
+    """Cálculo 8: cliente con más compras en una categoría (filter + max)."""
     cat_sales = filter_sales_by_category(sales, category)
     best = max(
         clients,
@@ -146,13 +151,25 @@ def calc_high_spending_clients(clients, sales, limit=500):
     ]
 
 
+def calc_high_spending_count(clients, sales, limit=500):
+    """Cálculo 9: número de clientes que superan el gasto mínimo."""
+    return len(calc_high_spending_clients(clients, sales, limit))
+
+
 def calc_monthly_sales(sales):
-    """Cálculo 10: total vendido por mes (formato 'AAAA-MM')."""
-    months = sorted(set(map(lambda s: s.date[:7], sales)))
-    return {
-        month: round(sum_amounts(filter_sales_by_month(sales, month)), 2)
-        for month in months
-    }
+    """Cálculo 10 (pandas): total vendido por mes (formato 'AAAA-MM')."""
+    df = sales_to_dataframe(sales)
+    df["month"] = pd.to_datetime(df["date"]).dt.to_period("M")
+    totals = df.groupby("month")["amount"].sum().round(2)
+    return {str(month): float(total) for month, total in totals.items()}
+
+
+def calc_monthly_cumulative_sales(sales):
+    """Cálculo 10 (pandas): ventas acumuladas mes a mes."""
+    df = sales_to_dataframe(sales)
+    df["month"] = pd.to_datetime(df["date"]).dt.to_period("M")
+    totals = df.groupby("month")["amount"].sum().cumsum().round(2)
+    return {str(month): float(total) for month, total in totals.items()}
 
 
 # ------------------------------------------------------------------
@@ -161,7 +178,7 @@ def calc_monthly_sales(sales):
 
 def build_sales_detail(clients, sales):
     """Cruza ventas y clientes con pandas y devuelve el detalle por venta."""
-    df_sales = pd.DataFrame([s.to_dict() for s in sales])
+    df_sales = sales_to_dataframe(sales)
     df_clients = pd.DataFrame(
         [{"client_id": c.client_id, "client_name": c.name, "country": c.country}
          for c in clients]
@@ -191,7 +208,9 @@ def generate_report():
         "sales_by_category": calc_sales_by_category(sales),
         "top_client_electronics": calc_top_client_by_category_count(clients, sales),
         "high_spending_clients": calc_high_spending_clients(clients, sales),
+        "high_spending_count": calc_high_spending_count(clients, sales),
         "monthly_sales": calc_monthly_sales(sales),
+        "monthly_cumulative_sales": calc_monthly_cumulative_sales(sales),
         "sales_detail": build_sales_detail(clients, sales),
     }
 
@@ -205,3 +224,4 @@ def save_report(report, path=REPORT_FILE):
 
 if __name__ == "__main__":
     print(f"Reporte guardado en: {save_report(generate_report())}")
+    
